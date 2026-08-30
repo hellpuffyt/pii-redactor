@@ -1,0 +1,22 @@
+keep_private_ips = true
+salt = "example-project-salt-change-me"
+
+[detectors]
+email = "tokenise"
+phone = "redact"
+credit_card = "redact"
+iban = "redact"
+ip_address = "partial"
+national_id = "redact"
+date_of_birth = "redact"
+person_name = "keep"
+address = "redact"
+api_key = "redact"
+
+[csv_columns]
+ssn = "redact"
+email = "tokenise"
+
+[json_paths]
+"user.ssn" = "redact"
+"user.email" = "tokenise"

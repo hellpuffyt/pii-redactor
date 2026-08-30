@@ -1,0 +1,2 @@
+{"user": {"name": "James Miller", "email": "james.miller@example.com", "ssn": "523-45-6789"}, "ip": "203.0.113.42", "note": "Card 4111111111111111 charged successfully."}
+{"user": {"name": "Jennifer Lee", "email": "jennifer.lee@example.org", "ssn": "612-45-1234"}, "ip": "198.51.100.7", "note": "Order ORD-1029384756 shipped, not a card number."}

@@ -1,0 +1,12 @@
+Support ticket #48213 opened by James Miller.
+Contact email: james.miller@example.com, alternate: jm.support+billing@example.org
+Phone on file: +1 415-555-0132, mobile (415) 555-0199
+Billing card used: 4111 1111 1111 1111 (Visa test number)
+Bank transfer reference IBAN: DE89370400440532013000
+Customer connected from IP 203.0.113.42, internal relay 10.0.0.5
+Date of birth on file: DOB 1990-04-12
+Shipping address: 742 Evergreen Terrace, Springfield, IL 62704
+Order number ORD-1029384756 was NOT flagged as a card, as expected.
+Internal build tagged version 10.20.30.40 is not always a real IP address.
+API key rotated: AKIAIOSFODNN7EXAMPLE
+Ticket closed by support staff.
