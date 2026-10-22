@@ -4,10 +4,10 @@ redacted string plus a report that never contains the detected values."""
 from __future__ import annotations
 
 import hashlib
-import ipaddress
 from dataclasses import dataclass, field
 
 from pii_redactor.detectors import DETECTORS, Match
+from pii_redactor.detectors.patterns import is_internal_address
 from pii_redactor.mapping import TokenMap
 from pii_redactor.policy import Policy
 
@@ -72,11 +72,7 @@ def run_detectors(
 
 
 def _is_private_ip(value: str) -> bool:
-    try:
-        addr = ipaddress.ip_address(value)
-    except ValueError:
-        return False
-    return addr.is_private or addr.is_loopback or addr.is_link_local
+    return is_internal_address(value)
 
 
 def _dedupe_overlaps(matches: list[Match]) -> list[Match]:
@@ -85,12 +81,18 @@ def _dedupe_overlaps(matches: list[Match]) -> list[Match]:
         matches,
         key=lambda m: (m.start, -confidence_rank.get(m.confidence, 0), -(m.end - m.start)),
     )
+    # `ordered` is sorted by start, so every kept span starts at or before
+    # `match`; it overlaps one of them iff it starts before the furthest kept
+    # end. Tracking that end keeps this O(n log n) instead of O(n^2), which
+    # matters for long single lines with thousands of candidates.
     kept: list[Match] = []
+    furthest_end = -1
     for match in ordered:
-        if any(match.start < k.end and match.end > k.start for k in kept):
+        if match.start < furthest_end:
             continue
         kept.append(match)
-    return sorted(kept, key=lambda m: m.start)
+        furthest_end = max(furthest_end, match.end)
+    return kept
 
 
 def partial_mask(detector: str, value: str) -> str:

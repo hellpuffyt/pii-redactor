@@ -9,16 +9,16 @@ sending a large pull request.
 
 ```bash
 python -m venv .venv
-./.venv/Scripts/python.exe -m pip install -e ".[dev]"    # Windows
-# source .venv/bin/activate && pip install -e ".[dev]"   # macOS/Linux
+.venv/bin/python -m pip install -e ".[dev]"            # macOS/Linux
+# .venv\Scripts\python.exe -m pip install -e ".[dev]"  # Windows
 ```
 
 ## Before opening a pull request
 
 ```bash
-./.venv/Scripts/python.exe -m pytest
-./.venv/Scripts/python.exe -m ruff check .
-./.venv/Scripts/python.exe -m mypy
+.venv/bin/python -m pytest          # .venv\Scripts\python.exe on Windows
+.venv/bin/python -m ruff check .
+.venv/bin/python -m mypy
 ```
 
 All three must pass. New detectors or policy actions should come with:

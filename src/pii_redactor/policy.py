@@ -72,6 +72,13 @@ class Policy:
         actions = dict(DEFAULT_ACTIONS)
         raw_actions = data.get("detectors", {})
         for name, action in raw_actions.items():
+            if name not in DEFAULT_ACTIONS:
+                # A typo here ("emial") would otherwise be silently ignored
+                # and the user would believe a policy is in force that is not.
+                raise ValueError(
+                    f"Unknown detector {name!r} in [detectors]; "
+                    f"must be one of {sorted(DEFAULT_ACTIONS)}"
+                )
             _validate_action(name, action)
             actions[name] = action
 
@@ -85,12 +92,15 @@ class Policy:
             _validate_action(name, action)
             json_paths[name] = action
 
+        salt = data.get("salt")
+        if salt is not None and not isinstance(salt, str):
+            raise ValueError("salt must be a string")
         return cls(
             actions=actions,
             csv_columns=csv_columns,
             json_paths=json_paths,
             keep_private_ips=bool(data.get("keep_private_ips", False)),
-            salt=data.get("salt"),
+            salt=salt,
         )
 
 

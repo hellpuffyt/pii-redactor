@@ -25,7 +25,7 @@ from pii_redactor.validators import iban_is_valid, luhn_is_valid
 # ---------------------------------------------------------------------------
 
 _EMAIL_RE = re.compile(
-    r"(?<![\w.+-])[A-Za-z0-9][A-Za-z0-9._%+-]*@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
+    r"(?<![\w.+-])[A-Za-z0-9][A-Za-z0-9._%+'-]*@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
     r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+(?![\w+-])"
 )
 
@@ -52,7 +52,8 @@ def detect_email(text: str) -> list[Match]:
 # 7-10 digit numbers that are much more likely to be order/reference IDs.
 _PHONE_RE = re.compile(
     r"(?<![\w])(?:"
-    r"\+\d{1,3}[\s.-]?\(?\d{1,4}\)?(?:[\s.-]\d{2,4}){1,4}"
+    r"\+\d{8,15}"
+    r"|\+\d{1,3}[\s.-]?\(?\d{1,4}\)?(?:[\s.-]\d{2,4}){1,4}"
     r"|\(\d{2,4}\)[\s.-]?\d{2,4}(?:[\s.-]\d{2,4}){1,3}"
     r"|\d{2,4}(?:[\s.-]\d{2,4}){2,4}"
     r")(?![\w])"
@@ -71,7 +72,7 @@ def detect_phone(text: str) -> list[Match]:
             continue
         # Reject things that are obviously dates (e.g. 2024-01-30) by
         # requiring the separator grouping not look like an ISO date.
-        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) or _looks_like_calendar_date(value):
             continue
         has_separator_hint = value.startswith("+") or "(" in value or any(
             sep in value for sep in (" ", "-", ".")
@@ -81,6 +82,21 @@ def detect_phone(text: str) -> list[Match]:
         confidence = "high" if value.startswith("+") or "(" in value else "medium"
         matches.append(Match("phone", m.start(), m.end(), value, confidence))
     return matches
+
+
+def _looks_like_calendar_date(value: str) -> bool:
+    """True for MM-DD-YYYY / DD-MM-YYYY shaped values that are real dates."""
+    m = re.fullmatch(r"(\d{1,2})([-./])(\d{1,2})\2(\d{4})", value)
+    if m is None:
+        return False
+    first, second, year = int(m.group(1)), int(m.group(3)), int(m.group(4))
+    for month, day in ((first, second), (second, first)):
+        try:
+            date(year, month, day)
+        except ValueError:
+            continue
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -107,15 +123,22 @@ def detect_credit_card(text: str) -> list[Match]:
 # IBAN (mod-97 checksum validated)
 # ---------------------------------------------------------------------------
 
-_IBAN_CANDIDATE_RE = re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{2,4}){2,7}\b")
+_IBAN_CANDIDATE_RE = re.compile(
+    r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{2,4}){2,7}\b", re.IGNORECASE
+)
 
 
 def detect_iban(text: str) -> list[Match]:
     matches = []
     for m in _IBAN_CANDIDATE_RE.finditer(text):
         raw = m.group(0)
+        # The candidate regex is greedy and may swallow a following short
+        # word ("... 3000 on file"); drop trailing space-separated groups
+        # until the checksum validates or nothing plausible is left.
+        while not iban_is_valid(raw) and " " in raw:
+            raw = raw.rsplit(" ", 1)[0]
         if iban_is_valid(raw):
-            matches.append(Match("iban", m.start(), m.end(), raw, "high"))
+            matches.append(Match("iban", m.start(), m.start() + len(raw), raw, "high"))
     return matches
 
 
@@ -129,13 +152,36 @@ _IPV6_RE = re.compile(
 )
 
 
+_INTERNAL_NETWORKS = tuple(
+    ipaddress.ip_network(n)
+    for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7")
+)
+
+
+def is_internal_address(value: str) -> bool:
+    """RFC 1918 / IPv6 unique-local, loopback, or link-local.
+
+    Deliberately narrower than ``ipaddress``'s ``is_private``, which also
+    covers documentation, benchmarking and reserved ranges; ``keep_private``
+    is documented as skipping only internal networks, so anything else is
+    still treated as potentially identifying and redacted.
+    """
+    try:
+        addr = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    if addr.is_loopback or addr.is_link_local:
+        return True
+    return any(addr.version == net.version and addr in net for net in _INTERNAL_NETWORKS)
+
+
 def detect_ip_address(text: str, *, keep_private: bool = False) -> list[Match]:
     matches: list[Match] = []
     for regex in (_IPV4_RE, _IPV6_RE):
         for m in regex.finditer(text):
             raw = m.group(0)
             try:
-                addr = ipaddress.ip_address(raw)
+                ipaddress.ip_address(raw)
             except ValueError:
                 continue
             if regex is _IPV4_RE:
@@ -144,7 +190,7 @@ def detect_ip_address(text: str, *, keep_private: bool = False) -> list[Match]:
                 # octet ranges (0-255), which rules out most non-IP dotted
                 # numbers (e.g. "999.1.2.3" or "1.2.3.4.5").
                 pass
-            if keep_private and (addr.is_private or addr.is_loopback or addr.is_link_local):
+            if keep_private and is_internal_address(raw):
                 continue
             confidence = "high"
             matches.append(Match("ip_address", m.start(), m.end(), raw, confidence))
@@ -263,7 +309,7 @@ _STREET_SUFFIXES = (
 )
 _ADDRESS_RE = re.compile(
     rf"\b\d{{1,5}}\s+(?:[A-Z][a-z]+\s){{1,3}}(?:{_STREET_SUFFIXES})\b\.?"
-    rf"(?:,\s*[A-Za-z][A-Za-z .]+)?(?:,\s*[A-Z]{{2}})?(?:\s+\d{{5}}(?:-\d{{4}})?)?"
+    rf"(?:,\s*[A-Za-z](?:[A-Za-z .]*[A-Za-z])?)?(?:,\s*[A-Z]{{2}})?(?:\s+\d{{5}}(?:-\d{{4}})?)?"
 )
 
 
@@ -283,7 +329,7 @@ _API_KEY_PATTERNS = [
     re.compile(r"\bASIA[0-9A-Z]{16}\b"),  # AWS temporary access key id
     re.compile(r"\bsk-[A-Za-z0-9]{20,}\b"),  # OpenAI-style secret key
     re.compile(r"\bghp_[A-Za-z0-9]{36}\b"),  # GitHub personal access token
-    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{22,}\b"),
+    re.compile(r"\bgithub" r"_pat_[A-Za-z0-9_]{22,}\b"),  # GitHub fine-grained PAT
     re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),  # Slack token
     re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b"),  # Google API key
     re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"),  # JWT
@@ -308,7 +354,15 @@ def detect_api_key(text: str) -> list[Match]:
     return _dedupe_overlaps(matches)
 
 
+_UUID_RE = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE
+)
+
+
 def _looks_like_high_entropy_token(value: str) -> bool:
+    # Canonical UUIDs are identifiers (request/trace ids), not secrets.
+    if _UUID_RE.fullmatch(value):
+        return False
     if value.isdigit() or value.isalpha():
         return False
     has_digit = any(c.isdigit() for c in value)
@@ -329,12 +383,18 @@ def _looks_like_high_entropy_token(value: str) -> bool:
 def _dedupe_overlaps(matches: list[Match]) -> list[Match]:
     """Keep the longest match when spans overlap, preferring earlier starts."""
     ordered = sorted(matches, key=lambda m: (m.start, -(m.end - m.start)))
+    # `ordered` is sorted by start, so every kept span starts at or before
+    # `match`; it overlaps one of them iff it starts before the furthest kept
+    # end. Tracking that end keeps this O(n log n) instead of O(n^2), which
+    # matters for long single lines with thousands of candidates.
     kept: list[Match] = []
+    furthest_end = -1
     for match in ordered:
-        if any(match.start < k.end and match.end > k.start for k in kept):
+        if match.start < furthest_end:
             continue
         kept.append(match)
-    return sorted(kept, key=lambda m: m.start)
+        furthest_end = max(furthest_end, match.end)
+    return kept
 
 
 DetectorFunc = Callable[..., "Iterable[Match]"]

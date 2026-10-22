@@ -10,3 +10,5 @@ dist/
 .coverage
 htmlcov/
 *.mapping.json
+.env
+.env.*
