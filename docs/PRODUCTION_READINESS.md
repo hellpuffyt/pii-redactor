@@ -1,7 +1,7 @@
 # Production readiness — pii-redactor
 
-Audit date: 2026-10-22. Tested commit: `cba7fc4` (branch
-`audit/production-readiness`); the commit adding this file changes
+Audit date: 2026-10-22. Tested code commit: `ca078c9` (branch
+`audit/production-readiness`); later commits change
 documentation only.
 
 ## Scope
