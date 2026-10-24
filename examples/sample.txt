@@ -8,5 +8,5 @@ Date of birth on file: DOB 1990-04-12
 Shipping address: 742 Evergreen Terrace, Springfield, IL 62704
 Order number ORD-1029384756 was NOT flagged as a card, as expected.
 Internal build tagged version 10.20.30.40 is not always a real IP address.
-API key rotated: AKIAIOSFODNN7EXAMPLE
+API key rotated: api_key=Zx9Qw8Er7Ty6Ui5Op4As3Df2Gh1Jk0LmNbVc
 Ticket closed by support staff.

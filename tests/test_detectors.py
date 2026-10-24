@@ -227,8 +227,9 @@ class TestAddressDetector:
 
 class TestApiKeyDetector:
     def test_detects_aws_access_key(self) -> None:
-        matches = detect_api_key("key=AKIAIOSFODNN7EXAMPLE in config")
-        assert any(m.value == "AKIAIOSFODNN7EXAMPLE" for m in matches)
+        key = "AKIA" + "IOSFODNN7EXAMPLE"  # AWS documentation example, built at runtime
+        matches = detect_api_key(f"key={key} in config")
+        assert any(m.value == key for m in matches)
 
     def test_detects_github_token(self) -> None:
         token = "ghp_" + "a" * 36

@@ -10,6 +10,7 @@ different retention policy) from the redacted output it belongs to.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -67,8 +68,15 @@ class TokenMap:
         return cls(counters=counters, forward=forward, reverse=reverse)
 
     def save(self, path: str | Path) -> None:
+        """Write the map, readable and writable by the owner only (0600 on
+        POSIX), since it is as sensitive as the original data."""
         p = Path(path)
-        p.write_text(json.dumps(self.to_dict(), indent=2, sort_keys=True), encoding="utf-8")
+        payload = json.dumps(self.to_dict(), indent=2, sort_keys=True)
+        fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(payload)
+        # O_CREAT's mode only applies to new files; tighten an existing one.
+        os.chmod(p, 0o600)
 
     @classmethod
     def load(cls, path: str | Path) -> TokenMap:
