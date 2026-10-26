@@ -1,8 +1,25 @@
 # pii-redactor
 
 Detect and redact personal data (PII) in text, CSV, JSON/JSONL, and log
-files, under a configurable, per-detector policy — with an optional
-reversible token map kept in a file separate from the redacted output.
+files under a per-detector policy, with an optional reversible token map kept
+in a file separate from the redacted output.
+
+**Status:** version 0.1.0, not published to PyPI; install from a clone. A
+pattern-and-checksum tool with measured misses (see below), not a guarantee.
+CI runs the tests on Linux, macOS and Windows with Python 3.10 to 3.13.
+
+## Demo
+
+Real terminal captures of the CLI on the synthetic files in `examples/`
+(the same commands and output appear as text under [Examples](#examples)).
+
+<img src="docs/screenshots/redact-sample-text.png" width="100%" alt="Terminal capture: pii-redactor redact examples/sample.txt --format text prints the sample with emails, phones, card, IBAN, date of birth, address and API key replaced by markers, IPs partially masked, and a report of 13 matches by detector and action.">
+
+*Default policy on `examples/sample.txt`: markers for most detectors, partial masking for IPs, and a value-free report.*
+
+<img src="docs/screenshots/tokenise-csv-and-resolve.png" width="100%" alt="Terminal capture: redacting examples/sample.csv with examples/policy.toml tokenises emails to EMAIL_001 and EMAIL_002 and redacts the ssn column; resolve then maps EMAIL_001 back to the original address using the separate mapping file.">
+
+*`examples/policy.toml` on `examples/sample.csv`: emails become reversible tokens, the `ssn` column is replaced whole, and `resolve` recovers a token from the mapping file.*
 
 ## What
 
@@ -23,11 +40,11 @@ means leaking real customer data along with it. The two common ways people
 deal with this are both unsatisfying:
 
 - **Destroy the data** (blanket find/replace, or a cloud DLP tool set to
-  maximum aggressiveness) — you can no longer correlate records across the
+  maximum aggressiveness). You can no longer correlate records across the
   redacted export, count distinct users, or reproduce a bug tied to a
   specific account.
-- **Use a cloud redaction service** — you've "solved" leaking the data by
-  sending it to a third party first.
+- **Use a cloud redaction service.** The data still leaves your machine; it
+  just goes to the redaction vendor first.
 
 `pii-redactor` is local-only and policy-driven: you decide, per detector
 and per field, whether something gets destroyed (`redact`), pseudonymised
@@ -49,8 +66,8 @@ still recover the original values later.
   per-column policy), and JSON/JSONL (per dotted-path policy).
 - Streaming line-by-line / row-by-row processing for text, log, CSV, and
   JSONL, so files far larger than available memory can be redacted.
-- `--dry-run` reporting exactly what *would* be redacted — by detector
-  type and count — without writing any output or ever printing a detected
+- `--dry-run` reporting what *would* be redacted, by detector type and
+  count, without writing any output or ever printing a detected
   value.
 
 ## Detectors reference
@@ -63,7 +80,7 @@ still recover the original values later.
 | `iban`           | Pattern + **ISO 7064 mod-97-10 checksum** + length check per country | high |
 | `ip_address`     | IPv4/IPv6 parsed with `ipaddress`; optional `keep_private_ips` to skip RFC 1918 / IPv6 unique-local (`fc00::/7`), loopback and link-local addresses (documentation, CGNAT and reserved ranges are still redacted) | high |
 | `national_id`    | US SSN-shaped pattern with area/group/serial exclusions | high |
-| `date_of_birth`  | Date pattern, only matched near a birth-context keyword (`DOB`, `born`, `date of birth`), plus a plausibility check (real calendar date, not in the future) | medium |
+| `date_of_birth`  | Date pattern, only matched near a birth-context keyword (`DOB`, `born`, `date of birth`, `birth date`), plus a plausibility check (real calendar date, not in the future) | medium |
 | `person_name`    | Two-token capitalised span where the first token is in a common-first-name dictionary | low |
 | `address`        | Street-number + street-name + suffix pattern (optionally city/state/ZIP) | medium |
 | `api_key`        | Known-vendor prefixes (AWS `AKIA`/`ASIA`, OpenAI `sk-`, GitHub classic (`ghp_`) and fine-grained PATs, Slack `xox*`, Google `AIza`, JWTs) plus a generic high-entropy-token heuristic | high/medium |
@@ -101,24 +118,32 @@ notes = "redact"
   `pii_redactor.policy.DEFAULT_ACTIONS`).
 - `csv_columns` and `json_paths` force an action on the **whole cell /
   whole field value** for that column or dotted path, regardless of
-  whether a detector pattern matches — useful for a column you know is
-  always sensitive (e.g. `ssn`) even if its stored format varies.
+  whether a detector pattern matches. Use this for a column you know is
+  always sensitive (e.g. `ssn`) even if its stored format varies. The
+  override is labelled with the CSV column name, or the last segment of the
+  JSON path: the `ssn` column becomes `[SSN]`, a tokenised `customer_email`
+  column becomes `CUSTOMER_EMAIL_001` (resolve it with
+  `--detector customer_email`), and the report counts it under that name.
 - `salt` is used for the `hash` action. Use a project-specific salt; two
   files redacted with the same salt will hash the same input value to the
-  same output, which is what makes joins across redacted files possible —
-  and also why the salt itself must be kept as confidential as the data.
+  same output. That is what makes joins across redacted files possible, and
+  also why the salt itself must be kept as confidential as the data.
 
 ### Actions
 
 | Action | Behaviour | Example |
 |---|---|---|
 | `redact` | Replace with a type marker | `[EMAIL]` |
-| `hash` | Stable salted hash (joinable, not reversible without the salt) | `EMAIL_HASH_9f86d081...` |
+| `hash` | Stable salted hash (joinable, not reversible without the salt) | `EMAIL_HASH_05c0763415f0` (12 hex chars) |
 | `tokenise` | Sequential token, reversible via a **separate** mapping file | `EMAIL_001` |
-| `partial` | Partially mask, keeping some structure | `j***@example.com` |
+| `partial` | Partially mask, keeping some structure (emails keep the first character and domain, cards the last four digits, IPv4 the first two octets) | `j*******@example.com`, `203.0.xxx.xxx` |
 | `keep` | Leave the value untouched | (unchanged) |
 
 ## Architecture
+
+Diagram of the data flow through the modules (a drawing, not a screenshot):
+
+<img src="docs/assets/overview.svg" width="100%" alt="Data flow: cli.py passes the input through a format adapter; cell.py applies whole-value overrides for CSV columns and JSON paths named in the policy; other values go through the ten detectors and engine.py applies redact, hash, tokenise, partial or keep. Output is written via a temporary file, tokens go to a separate 0600 mapping file, and the stderr report holds only detector names, actions and counts.">
 
 ```
 src/pii_redactor/
@@ -132,14 +157,17 @@ src/pii_redactor/
 ```
 
 `RedactionReport` only ever stores detector names, action names, and
-integer counts — never the detected values themselves (see Security,
+integer counts, never the detected values themselves (see Security,
 below).
 
 ## Installation
 
 Requires Python 3.10+. No runtime dependencies on 3.11+ (`tomli` on 3.10).
 
+Not published to PyPI; install from a clone:
+
 ```bash
+git clone https://github.com/hellpuffyt/pii-redactor && cd pii-redactor
 python -m venv .venv
 # macOS / Linux
 .venv/bin/python -m pip install -e ".[dev]"
@@ -153,44 +181,117 @@ the console script installed next to it.
 
 ## Usage
 
-```bash
-# Redact a text file with the default policy, to stdout
-pii-redactor redact input.txt --format text
-
-# Redact a CSV with a custom policy, tokenising the email column
-pii-redactor redact customers.csv --format csv \
-  --policy policy.toml --mapping-file customers.mapping.json \
-  -o customers.redacted.csv
-
-# Redact JSONL, one JSON object per line
-pii-redactor redact events.jsonl --format jsonl --policy policy.toml -o events.redacted.jsonl
-
-# Dry run: report what would be redacted without writing anything
-pii-redactor redact support_export.log --format log --dry-run
-
-# Recover an original value from a token, given the mapping file
-pii-redactor resolve --mapping-file customers.mapping.json --detector email --token EMAIL_001
+```
+pii-redactor redact INPUT --format {text,csv,json,jsonl,log}
+                    [-o OUTPUT] [--policy POLICY] [--mapping-file MAPPING_FILE]
+                    [--detectors DETECTORS] [--dry-run]
+pii-redactor resolve --mapping-file MAPPING_FILE --detector DETECTOR --token TOKEN
 ```
 
-### Dry-run output
+Without `-o`, redacted output goes to stdout. The report always goes to
+stderr. `--detectors` takes a comma-separated subset such as
+`email,phone`; an unknown name is an error. If the policy uses `tokenise`
+anywhere, `--mapping-file` is required (except with `--dry-run`).
 
-`--dry-run` writes a report to stderr with detector names, action names,
-and counts only — it never prints the values that were found:
-
-```
-Would redact 4 item(s):
-  credit_card: 1 (redact=1)
-  email: 2 (tokenise=2)
-  phone: 1 (redact=1)
-```
+Exit codes: `0` on success, `2` for usage and input errors (bad policy,
+unknown detector, missing mapping file, unsafe paths, invalid UTF-8, JSON or
+CSV), and `1` when `resolve` cannot find the token.
 
 ## Examples
 
 `examples/sample.txt`, `examples/sample.csv`, and `examples/sample.jsonl`
-contain synthetic (non-real) data — invented names, `example.com`
-addresses, RFC 5737/RFC 3849 documentation IP ranges, and the standard
-`4111111111111111` Luhn-valid test card number — used by the CI smoke test
-and safe to experiment with locally.
+contain synthetic data: invented names, `example.com` addresses, RFC 5737
+and RFC 3849 documentation IP ranges, and the standard `4111111111111111`
+Luhn-valid test card number. `examples/policy.toml` tokenises emails, keeps
+private IPs and forces the `ssn` and `email` CSV columns. The CI smoke test
+uses these files. All outputs below are from real runs.
+
+Redact a text file with the default policy, to stdout:
+
+```console
+$ pii-redactor redact examples/sample.txt --format text
+Support ticket #48213 opened by James Miller.
+Contact email: [EMAIL], alternate: [EMAIL]
+Phone on file: [PHONE], mobile [PHONE]
+Billing card used: [CREDIT_CARD] (Visa test number)
+Bank transfer reference IBAN: [IBAN]
+Customer connected from IP 203.0.xxx.xxx, internal relay 10.0.xxx.xxx
+Date of birth on file: DOB [DATE_OF_BIRTH]
+Shipping address: [ADDRESS]
+Order number ORD-1029384756 was NOT flagged as a card, as expected.
+Internal build tagged version 10.20.xxx.xxx is not always a real IP address.
+API key rotated: api_key=[API_KEY]
+Ticket closed by support staff.
+Redacted 13 item(s):
+  address: 1 (redact=1)
+  api_key: 1 (redact=1)
+  credit_card: 1 (redact=1)
+  date_of_birth: 1 (redact=1)
+  email: 2 (redact=2)
+  iban: 1 (redact=1)
+  ip_address: 3 (partial=3)
+  person_name: 1 (keep=1)
+  phone: 2 (redact=2)
+```
+
+The redacted text goes to stdout and the report to stderr. The report counts every match, including those whose action is `keep`
+(`person_name` is `keep` by default, so "James Miller" stays). Note that
+`10.20.30.40` is a valid IPv4 address and is masked even though the sample
+calls it a version string.
+
+Redact a CSV with the example policy, tokenising emails into a separate
+mapping file:
+
+```console
+$ pii-redactor redact examples/sample.csv --format csv --policy examples/policy.toml \
+    --mapping-file sample.mapping.json -o sample.redacted.csv
+Redacted 7 item(s):
+  email: 2 (tokenise=2)
+  person_name: 2 (keep=2)
+  phone: 1 (redact=1)
+  ssn: 2 (redact=2)
+$ cat sample.redacted.csv
+name,email,ssn,notes
+James Miller,EMAIL_001,[SSN],Reachable at [PHONE] for follow-up.
+Jennifer Lee,EMAIL_002,[SSN],Order ORD-9988776655 shipped without issue.
+```
+
+Recover an original value from a token with the mapping file:
+
+```console
+$ pii-redactor resolve --mapping-file sample.mapping.json --detector email --token EMAIL_001
+james.miller@example.com
+```
+
+Redact JSONL (one JSON object per line). The example policy tokenises, so a
+mapping file is needed here too:
+
+```bash
+pii-redactor redact examples/sample.jsonl --format jsonl --policy examples/policy.toml \
+  --mapping-file events.mapping.json -o events.redacted.jsonl
+```
+
+The first output line is:
+
+```json
+{"user": {"name": "James Miller", "email": "EMAIL_001", "ssn": "[SSN]"}, "ip": "203.0.xxx.xxx", "note": "Card [CREDIT_CARD] charged successfully."}
+```
+
+### Dry-run output
+
+`--dry-run` reads the whole input and writes only the report to stderr, with
+detector names, action names, and counts. It never prints the values that
+were found, writes no output file and does not create the mapping file:
+
+```console
+$ pii-redactor redact examples/sample.jsonl --format jsonl --policy examples/policy.toml --dry-run
+Would redact 9 item(s):
+  credit_card: 1 (redact=1)
+  email: 2 (tokenise=2)
+  ip_address: 2 (partial=2)
+  person_name: 2 (keep=2)
+  ssn: 2 (redact=2)
+```
 
 ## Testing
 
@@ -199,6 +300,10 @@ python -m pytest
 python -m ruff check .
 python -m mypy
 ```
+
+There are 171 tests. CI runs `pytest` on Ubuntu, macOS and Windows for Python
+3.10 to 3.13, `ruff` and `mypy` on Linux, and a smoke job that redacts the
+files in `examples/` with the CLI.
 
 The test suite places particular emphasis on **false-positive guards**:
 order numbers must not be flagged as credit cards, version strings must
@@ -249,7 +354,7 @@ fails if any other value leaks or if any error count rises.
   A redaction tool that leaks what it found defeats its own purpose.
 - The reversible token map is written to a file separate from the
   redacted output. **That mapping file is exactly as sensitive as the
-  original, un-redacted data** — anyone with it can recover every
+  original, un-redacted data**: anyone with it can recover every
   tokenised value. Store it with the same access controls as the source
   data, never commit it to version control, and delete it once it is no
   longer needed. It is written with owner-only permissions (`0600`) on
@@ -279,10 +384,10 @@ Be realistic about what this tool is:
   occasionally over- or under-match on inherently ambiguous input.
 - `person_name` detection is a low-confidence heuristic (dictionary +
   capitalisation) and is disabled (`keep`) by default because its false
-  positive/negative rates are the highest of any detector here — enable
+  positive/negative rates are the highest of any detector here. Enable
   it deliberately and review its output.
 - `date_of_birth` only fires near an explicit context keyword (`DOB`,
-  `born`, `date of birth`) by design, to avoid flagging every date in a
+  `born`, `date of birth`, `birth date`) by design, to avoid flagging every date in a
   document; this trades recall for precision.
 - JSON/JSONL **keys** are never scanned or redacted, only values. Numeric
   values are scanned in their decimal form (and replaced by a string when
@@ -300,6 +405,11 @@ Be realistic about what this tool is:
   sample of redacted output before sharing it externally, and treat this
   as one control among several (access controls, data minimisation,
   contractual terms), not a substitute for them.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Report vulnerabilities privately as
+described in [SECURITY.md](SECURITY.md), not in a public issue.
 
 ## License
 
