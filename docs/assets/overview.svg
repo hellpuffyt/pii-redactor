@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="500" viewBox="0 0 1200 500" role="img" aria-labelledby="t d">
+  <title id="t">pii-redactor data flow</title>
+  <desc id="d">cli.py streams the input through a format adapter for text, log, CSV, JSONL or JSON. For CSV and JSON, cell.py applies whole-value overrides for columns and paths named in the policy; every other value goes to the ten detectors, overlapping matches are dropped, and engine.py applies the policy action per detector. Redacted output is written to a temporary file and renamed into place. Tokenised values go to a separate mapping file with owner-only permissions, and the report on stderr contains only detector names, actions and counts.</desc>
+  <rect width="1200" height="500" fill="#0C0D0D"/>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#A3AAA6"/></marker>
+    <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#3FBF8A"/></marker>
+  </defs>
+  <g font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" fill="#A3AAA6" font-size="13">
+    <text x="40" y="44" fill="#EEEAE2" font-size="20" font-weight="600">pii-redactor: detect, apply policy, keep the token map apart</text>
+    <text x="40" y="68">Runs locally with no network access. Modules in src/pii_redactor/. Text, log, CSV and JSONL stream line by line.</text>
+  </g>
+  <g fill="#17191A" stroke="#2A2E2D" stroke-width="1.5">
+    <rect x="40" y="200" width="180" height="150" rx="8"/>
+    <rect x="250" y="200" width="190" height="150" rx="8"/>
+    <rect x="470" y="96" width="310" height="96" rx="8"/>
+    <rect x="470" y="212" width="310" height="96" rx="8"/>
+    <rect x="470" y="328" width="310" height="116" rx="8" stroke="#3FBF8A"/>
+    <rect x="810" y="180" width="350" height="72" rx="8"/>
+    <rect x="810" y="270" width="350" height="72" rx="8" stroke-dasharray="5 4"/>
+    <rect x="810" y="360" width="350" height="72" rx="8"/>
+  </g>
+  <g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="14" fill="#EEEAE2">
+    <text x="56" y="228">cli.py redact</text>
+    <text x="266" y="228">formats/</text>
+    <text x="486" y="124">formats/cell.py</text>
+    <text x="486" y="240">detectors/patterns.py</text>
+    <text x="486" y="356" fill="#3FBF8A">engine.py apply_policy</text>
+    <text x="826" y="208">-o output (or stdout)</text>
+    <text x="826" y="298">--mapping-file (mapping.py)</text>
+    <text x="826" y="388">stderr report</text>
+  </g>
+  <g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" fill="#A3AAA6">
+    <text x="56" y="254">input file</text>
+    <text x="56" y="274">--format</text>
+    <text x="56" y="294">--policy (TOML/JSON)</text>
+    <text x="56" y="314">--detectors</text>
+    <text x="56" y="334">--dry-run</text>
+    <text x="266" y="254">text.py, log.py</text>
+    <text x="266" y="274">csv_format.py</text>
+    <text x="266" y="294">json_format.py</text>
+    <text x="266" y="314">JSONL streams; a</text>
+    <text x="266" y="334">JSON doc is loaded</text>
+    <text x="486" y="148">column or path named in policy:</text>
+    <text x="486" y="166">action applies to the whole value.</text>
+    <text x="486" y="184">Everything else goes to detection.</text>
+    <text x="486" y="264">10 detectors, regex plus checks</text>
+    <text x="486" y="282">validators.py: Luhn, IBAN mod-97</text>
+    <text x="486" y="300">overlaps resolved, one per span</text>
+    <text x="486" y="380">redact:   [EMAIL]</text>
+    <text x="486" y="398">hash:     EMAIL_HASH_ + 12 hex</text>
+    <text x="486" y="416">tokenise: EMAIL_001</text>
+    <text x="486" y="434">partial:  j*******@example.com</text>
+    <text x="826" y="232">temp file, renamed on success</text>
+    <text x="826" y="322">token to original, file mode 0600</text>
+    <text x="826" y="412">detector, action, count; no values</text>
+  </g>
+  <g stroke="#A3AAA6" stroke-width="1.5" fill="none">
+    <path d="M220 275 H246" marker-end="url(#a)"/>
+    <path d="M440 250 C455 250 455 144 466 144" marker-end="url(#a)"/>
+    <path d="M440 275 H466" marker-end="url(#a)"/>
+    <path d="M625 192 V208" marker-end="url(#a)"/>
+    <path d="M625 308 V324" marker-end="url(#a)"/>
+    <path d="M780 386 C795 386 795 306 806 306" marker-end="url(#a)"/>
+    <path d="M780 400 H806" marker-end="url(#a)"/>
+  </g>
+  <path d="M780 370 C795 370 795 216 806 216" stroke="#3FBF8A" stroke-width="1.5" fill="none" marker-end="url(#g)"/>
+</svg>
